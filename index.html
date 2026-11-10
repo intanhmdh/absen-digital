@@ -64,6 +64,7 @@
     <button onclick="showTab('scan')">📷 Scan QR</button>
     <button class="secondary" onclick="showTab('qr')">🪪 Kartu QR</button>
     <button class="secondary" onclick="showTab('report')">📊 Laporan</button>
+    <button class="secondary" onclick="showTab('manual')">✍️ Input Manual</button>
   </nav>
 
   <section id="scanPanel" class="tab active">
@@ -125,6 +126,28 @@
       </table></div>
     </div>
   </section>
+
+  <section id="manualPanel" class="tab">
+    <div class="panel">
+      <h3>✍️ Input Absensi Manual</h3>
+      <p class="muted">Untuk mencatat absensi tanggal sekarang maupun tanggal sebelumnya. Jika siswa sudah memiliki catatan pada tanggal yang sama, status dan waktunya akan diperbarui.</p>
+      <div class="noprint" style="display:flex;flex-wrap:wrap;align-items:end;gap:8px">
+        <label>Tanggal absensi<br><input type="date" id="manualDate"></label>
+        <label>Nama siswa<br><select id="manualStudent" style="min-width:240px"><option value="">Memuat daftar siswa...</option></select></label>
+        <label>Status<br>
+          <select id="manualStatus">
+            <option value="Hadir">Hadir</option>
+            <option value="Izin">Izin</option>
+            <option value="Sakit">Sakit</option>
+            <option value="Alfa">Alfa</option>
+          </select>
+        </label>
+        <label>Waktu<br><input type="time" id="manualTime"></label>
+        <button onclick="saveManualAttendance()">Simpan Absensi</button>
+      </div>
+      <p id="manualMsg" role="status" class="muted">Pilih tanggal, siswa, status, dan waktu, lalu tekan Simpan Absensi.</p>
+    </div>
+  </section>
 </main>
 <script>
   let scanner=null, chart=null, busy=false, lastText="";
@@ -132,18 +155,14 @@
   $('date').textContent=new Date().toLocaleDateString('id-ID',{dateStyle:'full'});
 
   // GANTI dengan URL Web App Apps Script Anda yang berakhiran /exec.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbwxADizwC8nvMtpTgfgMVo9Ab3JEAAWzOwI5iiBsAtyKTetsGdfzmrwd_w5iV1ZgsYJ/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbwxADizwC8nvMtpTgfgMVo9Ab3JEAAWzOwl5iiBsAtyKTetsGdfzmrwd_w5iV1ZgsYJ/exec';
 
   // JSONP dipakai agar GitHub Pages dapat berkomunikasi dengan Apps Script
   // tanpa masalah CORS pada browser.
   let jsonpCounter = 0;
   function apiCall(action, params={}) {
     return new Promise((resolve, reject) => {
-     if (
-  !API_URL ||
-  !API_URL.startsWith('https://script.google.com/macros/s/') ||
-  !API_URL.endsWith('/exec')
-)  {
+      if (!API_URL || API_URL.includes('TEMPEL_URL_')) {
         reject(new Error('URL Apps Script belum diatur pada variabel API_URL di index.html.'));
         return;
       }
@@ -178,11 +197,12 @@
 
 
   function showTab(name){
-    ['scan','qr','report'].forEach(t=>{
+    ['scan','qr','report','manual'].forEach(t=>{
       $(t+'Panel').classList.toggle('active',t===name);
     });
     if(name==='qr') loadCards();
     if(name==='report') runReport();
+    if(name==='manual') loadManualStudents();
   }
   async function loadCameras(){
     const select=$('cameraSelect');
@@ -295,6 +315,59 @@
       $('reportRows').innerHTML=r.rows.map(x=>`<tr><td>${safe(x.tanggal)}</td><td>${safe(x.nama)}</td><td>${safe(x.kelas)}</td><td>${safe(x.status)}</td><td>${safe(x.waktu)}</td></tr>`).join('');
     }).catch(e=>alert(e.message||String(e)));
   }
+
+  let manualStudentsLoaded = false;
+  function setManualDefaults(){
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset()*60000);
+    $('manualDate').value = local.toISOString().slice(0,10);
+    $('manualTime').value = local.toISOString().slice(11,16);
+  }
+  function loadManualStudents(force=false){
+    if(manualStudentsLoaded && !force) return;
+    $('manualStudent').innerHTML='<option value="">Memuat daftar siswa...</option>';
+    apiCall('getStudents').then(list=>{
+      const select=$('manualStudent');
+      select.innerHTML='<option value="">-- Pilih siswa --</option>';
+      list.forEach(s=>{
+        const option=document.createElement('option');
+        option.value=s.nisn;
+        option.textContent=s.nama+' · '+s.kelas+' · '+s.nisn;
+        select.appendChild(option);
+      });
+      manualStudentsLoaded=true;
+      if(!list.length) $('manualMsg').textContent='Belum ada data siswa pada sheet Siswa.';
+    }).catch(e=>{
+      $('manualStudent').innerHTML='<option value="">Gagal memuat siswa</option>';
+      $('manualMsg').textContent=e.message||String(e);
+    });
+  }
+  async function saveManualAttendance(){
+    const dateString=$('manualDate').value;
+    const nisn=$('manualStudent').value;
+    const status=$('manualStatus').value;
+    const timeString=$('manualTime').value;
+    if(!dateString || !nisn || !status || !timeString){
+      $('manualMsg').textContent='Lengkapi tanggal, nama siswa, status, dan waktu terlebih dahulu.';
+      return;
+    }
+    const button=document.querySelector('#manualPanel button[onclick="saveManualAttendance()"]');
+    button.disabled=true;
+    button.textContent='Menyimpan...';
+    $('manualMsg').textContent='Mengirim data ke Google Spreadsheet...';
+    try{
+      const result=await apiCall('manualSave',{nisn,status,dateString,timeString});
+      $('manualMsg').textContent=(typeof result==='string'?result:(result&&result.message)||'Absensi manual berhasil disimpan.');
+      loadDashboard();
+      if($('start').value && $('end').value && dateString >= $('start').value && dateString <= $('end').value) runReport();
+    }catch(e){
+      $('manualMsg').textContent='Gagal menyimpan: '+(e.message||String(e));
+    }finally{
+      button.disabled=false;
+      button.textContent='Simpan Absensi';
+    }
+  }
+
   function printQR(){
     document.body.classList.remove('print-report');
     document.body.classList.add('print-qr');
@@ -311,6 +384,7 @@
 
   const today=new Date(), iso=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
   $('start').value=iso;$('end').value=iso;
+  setManualDefaults();
   loadDashboard();
   setInterval(loadDashboard,15000);
 </script>
