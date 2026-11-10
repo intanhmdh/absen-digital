@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#f2f6fc;color:#17345d;font-family:Arial,sans-serif}
+    header{background:#15549a;color:white;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+    header h2{margin:0 0 5px;font-size:21px} header small{opacity:.9}
+    main{max-width:1150px;margin:auto;padding:16px}
+    .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .card,.panel{background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px #17345d12}
+    .card h3{font-size:13px;margin:0 0 9px}.num{font-size:30px;font-weight:bold}
+    .blue{background:#dcecff}.green{background:#def4e3}.orange{background:#fff0d9}.red{background:#ffe2e5}
+    .layout{display:grid;grid-template-columns:1fr;gap:14px;margin-top:14px}
+    .panel{margin-top:14px}.layout .panel{margin:0}
+    button{border:0;border-radius:9px;padding:11px 15px;background:#15549a;color:white;font-weight:bold;cursor:pointer;margin:4px 3px}
+    button.secondary{background:#e8eff9;color:#174f91} button.danger{background:#c93545}
+    #reader{max-width:430px;width:100%;margin:12px auto}
+    #msg{padding:11px;background:#edf4ff;border-radius:9px;text-align:center;min-height:40px;font-weight:bold}
+    .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+    .tabs button{margin:0}.tab{display:none}.tab.active{display:block}
+    .tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}
+    th,td{padding:10px 8px;border-bottom:1px solid #e5ebf3;text-align:left;white-space:nowrap}
+    th{background:#edf4ff}.muted{color:#62748c;font-size:13px}
+    input,select{padding:10px;border:1px solid #ccd7e6;border-radius:8px;margin:4px;max-width:100%}
+    .qrgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+    .qr-card{background:white;border:1px solid #dce4ef;border-radius:10px;padding:12px;text-align:center;break-inside:avoid}
+    .qr-card .qrcode{display:flex;justify-content:center;margin:8px auto}
+    .qr-card strong{display:block}.qr-card small{color:#52657c}
+    @media(min-width:760px){.cards{grid-template-columns:repeat(5,1fr)}.layout{grid-template-columns:1fr 1fr}}
+    @media print{
+      body{background:white}
+      header,.tabs,.noprint,.cards,.layout,#recentPanel{display:none!important}
+      main{padding:0;max-width:none}
+      .tab{display:none!important}
+      body.print-qr #qrPanel,body.print-report #reportPanel{display:block!important}
+      body.print-qr #qrPanel .panel,body.print-report #reportPanel .panel{box-shadow:none;margin:0;padding:0}
+      body.print-qr .qrgrid{grid-template-columns:repeat(3,1fr);gap:8px}
+      body.print-qr .qr-card{border:1px solid #999;min-height:190px}
+      body.print-report .tablewrap{overflow:visible}
+      body.print-report table{font-size:11px}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div><h2>🏃 Absensi Digital PJOK</h2><small>SDN Kubang Apu · Kelas 5A</small></div>
+  <div id="date"></div>
+</header>
+<main>
+  <div class="cards">
+    <div class="card blue"><h3>Total Siswa</h3><div class="num" id="total">0</div></div>
+    <div class="card green"><h3>Hadir</h3><div class="num" id="hadir">0</div></div>
+    <div class="card orange"><h3>Izin</h3><div class="num" id="izin">0</div></div>
+    <div class="card orange"><h3>Sakit</h3><div class="num" id="sakit">0</div></div>
+    <div class="card red"><h3>Alfa</h3><div class="num" id="alfa">0</div></div>
+  </div>
+
+  <nav class="tabs noprint">
+    <button onclick="showTab('scan')">📷 Scan QR</button>
+    <button class="secondary" onclick="showTab('qr')">🪪 Kartu QR</button>
+    <button class="secondary" onclick="showTab('report')">📊 Laporan</button>
+  </nav>
+
+  <section id="scanPanel" class="tab active">
+    <div class="layout">
+      <div class="panel">
+        <h3>📷 Scan QR Code Siswa</h3>
+        <div id="reader"></div>
+        <div class="noprint" style="text-align:center">
+          <select id="cameraSelect" aria-label="Pilih kamera" style="min-width:220px">
+            <option value="">Klik Muat Kamera terlebih dahulu</option>
+          </select>
+          <button class="secondary" onclick="loadCameras()">Muat Kamera</button>
+          <button onclick="startScanner()">Buka Kamera</button>
+          <button class="danger" onclick="stopScanner()">Tutup Kamera</button>
+        </div>
+        <p id="msg">Tekan Buka Kamera untuk memulai.</p>
+        <p class="muted">Gunakan kamera belakang HP. Beri izin kamera pada browser. Halaman GitHub Pages harus dibuka melalui HTTPS. Data tersimpan di Google Sheets melalui Apps Script.</p>
+      </div>
+      <div class="panel">
+        <h3>📈 Diagram Kehadiran</h3>
+        <canvas id="chart"></canvas>
+        <p id="percent" class="muted"></p><p id="pending" class="muted"></p>
+      </div>
+    </div>
+    <div class="panel" id="recentPanel">
+      <h3>📋 Absensi Terbaru Hari Ini</h3>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Nama Siswa</th><th>Kelas</th><th>Status</th><th>Waktu Scan</th></tr></thead>
+        <tbody id="latest"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section id="qrPanel" class="tab">
+    <div class="panel">
+      <div class="noprint">
+        <h3>🪪 Kartu QR Siswa</h3>
+        <p class="muted">QR dibuat di browser dari data pada sheet Siswa.</p>
+        <button onclick="loadCards()">Muat / Perbarui QR</button>
+        <button onclick="printQR()">Cetak Semua Kartu</button>
+      </div>
+      <div id="qrCards" class="qrgrid"></div>
+    </div>
+  </section>
+
+  <section id="reportPanel" class="tab">
+    <div class="panel">
+      <h3>📊 Rekap Absensi</h3>
+      <div class="noprint">
+        <label>Dari <input type="date" id="start"></label>
+        <label>Sampai <input type="date" id="end"></label>
+        <button onclick="runReport()">Tampilkan</button>
+        <button class="secondary" onclick="printReport()">Cetak / Simpan PDF</button>
+      </div>
+      <p id="reportSummary"></p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Tanggal</th><th>Nama</th><th>Kelas</th><th>Status</th><th>Waktu</th></tr></thead>
+        <tbody id="reportRows"></tbody>
+      </table></div>
+    </div>
+  </section>
+</main>
+<script>
+  let scanner=null, chart=null, busy=false, lastText="";
+  const $=id=>document.getElementById(id);
+  $('date').textContent=new Date().toLocaleDateString('id-ID',{dateStyle:'full'});
+
+  // GANTI dengan URL Web App Apps Script Anda yang berakhiran /exec.
+  const API_URL = 'TEMPEL_URL_WEB_APP_APPS_SCRIPT_DI_SINI';
+
+  // JSONP dipakai agar GitHub Pages dapat berkomunikasi dengan Apps Script
+  // tanpa masalah CORS pada browser.
+  let jsonpCounter = 0;
+  function apiCall(action, params={}) {
+    return new Promise((resolve, reject) => {
+      if (!API_URL || API_URL.includes('https://script.google.com/macros/s/AKfycbwxADizwC8nvMtpTgfgMVo9Ab3JEAAWzOwI5iiBsAtyKTetsGdfzmrwd_w5iV1ZgsYJ/exec')) {
+        reject(new Error('URL Apps Script belum diatur pada variabel API_URL di index.html.'));
+        return;
+      }
+      const callbackName = 'absensiJsonp_' + (++jsonpCounter) + '_' + Date.now();
+      const script = document.createElement('script');
+      const query = new URLSearchParams({action, callback: callbackName, ...params});
+      let finished = false;
+      const cleanup = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        delete window[callbackName];
+        script.remove();
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Koneksi ke Google Sheets timeout. Periksa URL Apps Script dan deployment.'));
+      }, 20000);
+      window[callbackName] = (response) => {
+        cleanup();
+        if (response && response.success) resolve(response.data);
+        else reject(new Error((response && response.message) || 'Permintaan ke server gagal.'));
+      };
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('Tidak dapat menghubungi Apps Script. Periksa URL deployment dan akses Anyone.'));
+      };
+      script.src = API_URL + (API_URL.includes('?') ? '&' : '?') + query.toString();
+      document.body.appendChild(script);
+    });
+  }
+
+
+  function showTab(name){
+    ['scan','qr','report'].forEach(t=>{
+      $(t+'Panel').classList.toggle('active',t===name);
+    });
+    if(name==='qr') loadCards();
+    if(name==='report') runReport();
+  }
+  async function loadCameras(){
+    const select=$('cameraSelect');
+    select.innerHTML='<option value="">Memeriksa kamera...</option>';
+    if(typeof Html5Qrcode==='undefined'){
+      select.innerHTML='<option value="">Pustaka QR tidak termuat</option>';
+      $('msg').textContent='Pustaka pemindai QR gagal dimuat. Periksa koneksi internet.';
+      return;
+    }
+    if(!window.isSecureContext){
+      select.innerHTML='<option value="">Halaman bukan HTTPS</option>';
+      $('msg').textContent='Kamera memerlukan HTTPS. Buka halaman GitHub Pages melalui HTTPS.';
+      return;
+    }
+    try{
+      const cameras=await Html5Qrcode.getCameras();
+      if(!cameras||!cameras.length) throw new Error('Browser tidak menemukan kamera. Periksa sambungan webcam dan izin kamera.');
+      select.innerHTML='';
+      cameras.forEach((camera,i)=>{
+        const option=document.createElement('option');
+        option.value=camera.id;
+        option.textContent=camera.label||('Kamera '+(i+1));
+        select.appendChild(option);
+      });
+      const preferred=cameras.find(c=>/back|rear|environment|belakang/i.test(c.label||''));
+      if(preferred) select.value=preferred.id;
+      $('msg').textContent='Kamera ditemukan: '+cameras.length+'. Pilih kamera, lalu tekan Buka Kamera.';
+    }catch(err){
+      select.innerHTML='<option value="">Kamera belum dapat diakses</option>';
+      const detail=(err&&(err.message||err.name))?String(err.message||err.name):String(err);
+      $('msg').textContent='Gagal memuat kamera: '+detail+'. Pastikan izin kamera untuk halaman Web App diizinkan.';
+    }
+  }
+
+  async function startScanner(){
+    if(scanner&&scanner.isScanning) return;
+    if(typeof Html5Qrcode==='undefined'){
+      $('msg').textContent='Pustaka pemindai QR gagal dimuat. Periksa koneksi internet.';
+      return;
+    }
+    const cameraId=$('cameraSelect').value;
+    if(!cameraId){ await loadCameras(); return; }
+    $('msg').textContent='Membuka kamera...';
+    try{
+      if(!scanner) scanner=new Html5Qrcode('reader');
+      await scanner.start(cameraId,{fps:10,qrbox:{width:230,height:230},aspectRatio:1.0},text=>{
+        if(busy||text===lastText) return;
+        busy=true;lastText=text;$('msg').textContent='QR terbaca. Memeriksa data siswa...';
+        apiCall('recordScan',{qrText:text}).then(r=>{
+          $('msg').textContent=(r&&r.message)?r.message:'Absensi diproses.';
+          loadDashboard();
+          setTimeout(()=>{busy=false;lastText='';},2200);
+        }).catch(e=>{
+          $('msg').textContent=e.message||String(e);
+          setTimeout(()=>{busy=false;lastText='';},2200);
+        });
+      },()=>{});
+      $('msg').textContent='Kamera aktif. Arahkan QR Code siswa ke kotak pemindai.';
+    }catch(err){
+      const detail=(err&&(err.message||err.name))?String(err.message||err.name):String(err);
+      $('msg').textContent='Kamera gagal dibuka: '+detail+'. Periksa izin kamera browser, tutup aplikasi lain yang memakai kamera, lalu tekan Muat Kamera.';
+      try{if(scanner&&scanner.isScanning) await scanner.stop();}catch(_){ }
+      try{if(scanner) await scanner.clear();}catch(_){ }
+      scanner=null;
+    }
+  }
+  async function stopScanner(){
+    if(scanner){
+      try{if(scanner.isScanning) await scanner.stop();}catch(e){}
+      try{await scanner.clear();}catch(e){}
+      scanner=null;
+    }
+    busy=false;lastText='';
+    $('msg').textContent='Kamera ditutup.';
+  }
+  function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function loadDashboard(){
+    apiCall('getDashboardData').then(d=>{
+      ['total','hadir','izin','sakit','alfa'].forEach(k=>$(k).textContent=d[k]??0);
+      $('percent').textContent='Persentase hadir: '+(d.total?(100*d.hadir/d.total).toFixed(1):0)+'%';
+      $('pending').textContent='Belum tercatat: '+d.belum+' siswa';
+      $('latest').innerHTML=d.latest.map(r=>`<tr><td>${safe(r.nama)}</td><td>${safe(r.kelas)}</td><td>${safe(r.status)}</td><td>${safe(r.waktu)}</td></tr>`).join('');
+      if(chart)chart.destroy();
+      chart=new Chart($('chart'),{type:'doughnut',data:{labels:['Hadir','Izin','Sakit','Alfa'],
+        datasets:[{data:[d.hadir,d.izin,d.sakit,d.alfa],backgroundColor:['#2584df','#ffb74d','#9874d5','#e94e5b']}]},
+        options:{responsive:true,plugins:{legend:{position:'bottom'}}}});
+    }).catch(e=>$('msg').textContent=e.message||String(e));
+  }
+  function loadCards(){
+    $('qrCards').innerHTML='Memuat data siswa...';
+    apiCall('getStudents').then(list=>{
+      $('qrCards').innerHTML='';
+      if(!list.length){$('qrCards').textContent='Belum ada data siswa. Isi sheet Siswa terlebih dahulu.';return;}
+      if(typeof QRCode==='undefined'){$('qrCards').textContent='Pustaka QR gagal dimuat. Periksa koneksi internet.';return;}
+      list.forEach(s=>{
+        const card=document.createElement('div');card.className='qr-card';
+        const qr=document.createElement('div');qr.className='qrcode';
+        const name=document.createElement('strong');name.textContent=s.nama;
+        const info=document.createElement('small');info.textContent='NISN: '+s.nisn+' · Kelas '+s.kelas;
+        card.append(name,info,qr);$('qrCards').appendChild(card);
+        new QRCode(qr,{text:JSON.stringify({nama:s.nama,nisn:s.nisn,kelas:s.kelas}),width:130,height:130,correctLevel:QRCode.CorrectLevel.M});
+      });
+    }).catch(e=>{$('qrCards').textContent=e.message||String(e);});
+  }
+  function runReport(){
+    const a=$('start').value,b=$('end').value;
+    if(!a||!b||a>b)return;
+    apiCall('getReport',{startDate:a,endDate:b}).then(r=>{
+      $('reportSummary').textContent=`Hadir ${r.Hadir} · Izin ${r.Izin} · Sakit ${r.Sakit} · Alfa ${r.Alfa}`;
+      $('reportRows').innerHTML=r.rows.map(x=>`<tr><td>${safe(x.tanggal)}</td><td>${safe(x.nama)}</td><td>${safe(x.kelas)}</td><td>${safe(x.status)}</td><td>${safe(x.waktu)}</td></tr>`).join('');
+    }).catch(e=>alert(e.message||String(e)));
+  }
+  function printQR(){
+    document.body.classList.remove('print-report');
+    document.body.classList.add('print-qr');
+    window.print();
+  }
+  function printReport(){
+    document.body.classList.remove('print-qr');
+    document.body.classList.add('print-report');
+    window.print();
+  }
+  window.addEventListener('afterprint',()=>{
+    document.body.classList.remove('print-qr','print-report');
+  });
+
+  const today=new Date(), iso=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  $('start').value=iso;$('end').value=iso;
+  loadDashboard();
+  setInterval(loadDashboard,15000);
+</script>
+</body>
+</html>
