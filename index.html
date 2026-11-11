@@ -73,15 +73,10 @@
         <h3>📷 Scan QR Code Siswa</h3>
         <div id="reader"></div>
         <div class="noprint" style="text-align:center">
-          <select id="cameraSelect" aria-label="Pilih kamera" style="min-width:220px">
-            <option value="">Klik Muat Kamera terlebih dahulu</option>
-          </select>
-          <button class="secondary" onclick="loadCameras()">Muat Kamera</button>
-          <button onclick="startScanner()">Buka Kamera</button>
           <button class="danger" onclick="stopScanner()">Tutup Kamera</button>
         </div>
-        <p id="msg">Tekan Buka Kamera untuk memulai.</p>
-        <p class="muted">Gunakan kamera belakang HP. Beri izin kamera pada browser. Halaman GitHub Pages harus dibuka melalui HTTPS. Data tersimpan di Google Sheets melalui Apps Script.</p>
+        <p id="msg">Menyiapkan kamera otomatis...</p>
+        <p class="muted">Kamera belakang akan aktif otomatis. Pada penggunaan pertama, izinkan akses kamera saat Chrome memintanya. Halaman harus dibuka melalui HTTPS. Data tersimpan di Google Sheets melalui Apps Script.</p>
       </div>
       <div class="panel">
         <h3>📈 Diagram Kehadiran</h3>
@@ -200,57 +195,36 @@
     ['scan','qr','report','manual'].forEach(t=>{
       $(t+'Panel').classList.toggle('active',t===name);
     });
+    if(name==='scan' && (!scanner || !scanner.isScanning)) startScanner();
     if(name==='qr') loadCards();
     if(name==='report') runReport();
     if(name==='manual') loadManualStudents();
   }
-  async function loadCameras(){
-    const select=$('cameraSelect');
-    select.innerHTML='<option value="">Memeriksa kamera...</option>';
+  async function startScanner(){
+    if(scanner && scanner.isScanning) return;
     if(typeof Html5Qrcode==='undefined'){
-      select.innerHTML='<option value="">Pustaka QR tidak termuat</option>';
       $('msg').textContent='Pustaka pemindai QR gagal dimuat. Periksa koneksi internet.';
       return;
     }
     if(!window.isSecureContext){
-      select.innerHTML='<option value="">Halaman bukan HTTPS</option>';
       $('msg').textContent='Kamera memerlukan HTTPS. Buka halaman GitHub Pages melalui HTTPS.';
       return;
     }
-    try{
-      const cameras=await Html5Qrcode.getCameras();
-      if(!cameras||!cameras.length) throw new Error('Browser tidak menemukan kamera. Periksa sambungan webcam dan izin kamera.');
-      select.innerHTML='';
-      cameras.forEach((camera,i)=>{
-        const option=document.createElement('option');
-        option.value=camera.id;
-        option.textContent=camera.label||('Kamera '+(i+1));
-        select.appendChild(option);
-      });
-      const preferred=cameras.find(c=>/back|rear|environment|belakang/i.test(c.label||''));
-      if(preferred) select.value=preferred.id;
-      $('msg').textContent='Kamera ditemukan: '+cameras.length+'. Pilih kamera, lalu tekan Buka Kamera.';
-    }catch(err){
-      select.innerHTML='<option value="">Kamera belum dapat diakses</option>';
-      const detail=(err&&(err.message||err.name))?String(err.message||err.name):String(err);
-      $('msg').textContent='Gagal memuat kamera: '+detail+'. Pastikan izin kamera untuk halaman Web App diizinkan.';
-    }
-  }
 
-  async function startScanner(){
-    if(scanner&&scanner.isScanning) return;
-    if(typeof Html5Qrcode==='undefined'){
-      $('msg').textContent='Pustaka pemindai QR gagal dimuat. Periksa koneksi internet.';
-      return;
-    }
-    const cameraId=$('cameraSelect').value;
-    if(!cameraId){ await loadCameras(); return; }
-    $('msg').textContent='Membuka kamera...';
+    $('msg').textContent='Meminta akses kamera dan menyiapkan pemindai...';
     try{
       if(!scanner) scanner=new Html5Qrcode('reader');
-      await scanner.start(cameraId,{fps:10,qrbox:{width:230,height:230},aspectRatio:1.0},text=>{
-        if(busy||text===lastText) return;
-        busy=true;lastText=text;$('msg').textContent='QR terbaca. Memeriksa data siswa...';
+
+      const config={
+        fps:10,
+        qrbox:{width:230,height:230},
+        aspectRatio:1.0
+      };
+      const onScanSuccess=(text)=>{
+        if(busy || text===lastText) return;
+        busy=true;
+        lastText=text;
+        $('msg').textContent='QR terbaca. Memeriksa data siswa...';
         apiCall('recordScan',{qrText:text}).then(r=>{
           $('msg').textContent=(r&&r.message)?r.message:'Absensi diproses.';
           loadDashboard();
@@ -259,16 +233,28 @@
           $('msg').textContent=e.message||String(e);
           setTimeout(()=>{busy=false;lastText='';},2200);
         });
-      },()=>{});
+      };
+
+      // Prioritaskan kamera belakang tanpa meminta pengguna memilih perangkat.
+      try{
+        await scanner.start({facingMode:'environment'},config,onScanSuccess,()=>{});
+      }catch(firstError){
+        // Cadangan untuk browser/perangkat yang tidak mendukung facingMode.
+        const cameras=await Html5Qrcode.getCameras();
+        if(!cameras || !cameras.length) throw firstError;
+        const preferred=cameras.find(c=>/back|rear|environment|belakang/i.test(c.label||'')) || cameras[0];
+        await scanner.start(preferred.id,config,onScanSuccess,()=>{});
+      }
       $('msg').textContent='Kamera aktif. Arahkan QR Code siswa ke kotak pemindai.';
     }catch(err){
       const detail=(err&&(err.message||err.name))?String(err.message||err.name):String(err);
-      $('msg').textContent='Kamera gagal dibuka: '+detail+'. Periksa izin kamera browser, tutup aplikasi lain yang memakai kamera, lalu tekan Muat Kamera.';
-      try{if(scanner&&scanner.isScanning) await scanner.stop();}catch(_){ }
-      try{if(scanner) await scanner.clear();}catch(_){ }
+      $('msg').textContent='Kamera belum dapat dibuka: '+detail+'. Izinkan akses kamera pada Chrome, pastikan kamera tidak dipakai aplikasi lain, lalu muat ulang halaman.';
+      try{if(scanner && scanner.isScanning) await scanner.stop();}catch(_){}
+      try{if(scanner) await scanner.clear();}catch(_){}
       scanner=null;
     }
   }
+
   async function stopScanner(){
     if(scanner){
       try{if(scanner.isScanning) await scanner.stop();}catch(e){}
@@ -386,6 +372,8 @@
   $('start').value=iso;$('end').value=iso;
   setManualDefaults();
   loadDashboard();
+  // Kamera dimulai otomatis saat halaman dibuka; browser tetap dapat meminta izin pertama kali.
+  startScanner();
   setInterval(loadDashboard,15000);
 </script>
 </body>
